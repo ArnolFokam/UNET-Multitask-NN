@@ -1,0 +1,8 @@
+# Created by .ignore support plugin (hsz.mobi)
+data/processed/clean/*
+data/processed/image/*
+data/processed/mask/*
+data/processed/meta/*
+data/scans/*
+
+venv
