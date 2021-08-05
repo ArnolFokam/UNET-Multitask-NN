@@ -1,85 +1,102 @@
-import tensorflow as tf
+from collections import namedtuple
+
 from tensorflow.keras.models import *
 from tensorflow.keras.layers import *
+
+from models.encoding_decoding_layers import encoding_layer, decoding_layer
+
+EncoderOutput = namedtuple('EncoderOutput', 'conv pool')
+
+filters = [
+    {
+        'filter_size': 8,
+        'dropout': None
+    },
+    {
+        'filter_size': 16,
+        'dropout': None
+    },
+    {
+        'filter_size': 32,
+        'dropout': 0.3
+    },
+    {
+        'filter_size': 64,
+        'dropout': None
+    }]
+kernel = 3
 
 
 def PNSAMP_2D(
         num_attributes,
         pretrained_weights=None,
-        input_size=(512, 512, 1)):
+        input_size=(512, 512, 1),
+        variant='basic'):
     inputs = Input(input_size)
 
     # ENCODER NETWORK PART
-
-    # level 1
-    conv1 = Conv2D(64, 3, activation='relu', padding='same', kernel_initializer='he_normal')(inputs)
-    conv1 = Conv2D(64, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv1)
-    pool1 = MaxPooling2D(pool_size=(2, 2))(conv1)
-
-    # level 2
-    conv2 = Conv2D(128, 3, activation='relu', padding='same', kernel_initializer='he_normal')(pool1)
-    conv2 = Conv2D(128, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv2)
-    pool2 = MaxPooling2D(pool_size=(2, 2))(conv2)
-
-    # level 3
-    conv3 = Conv2D(256, 3, activation='relu', padding='same', kernel_initializer='he_normal')(pool2)
-    conv3 = Conv2D(256, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv3)
-    pool3 = MaxPooling2D(pool_size=(2, 2))(conv3)
-
-    # level 4
-    conv4 = Conv2D(512, 3, activation='relu', padding='same', kernel_initializer='he_normal')(pool3)
-    conv4 = Conv2D(512, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv4)
-    drop4 = Dropout(0.5)(conv4)
-    pool4 = MaxPooling2D(pool_size=(2, 2))(drop4)
+    encoders_output = list()
+    for i in range(len(filters)):
+        if i == 0:
+            encoders_output.append(
+                EncoderOutput(*encoding_layer(inputs,
+                                              filters[i]['filter_size'],
+                                              num_filters=kernel,
+                                              dropout=filters[len(filters) - (i+1)]['dropout'],
+                                              variant=variant)
+                              ))
+        else:
+            encoders_output.append(
+                EncoderOutput(*encoding_layer(
+                    encoders_output[-1].pool,
+                    filters[i]['filter_size'],
+                    num_filters=kernel,
+                    dropout=filters[len(filters) - (i+1)]['dropout'],
+                    variant=variant))
+            )
 
     # BETWEEN ENCODER AND DECODER
-    conv5 = Conv2D(1024, 3, activation='relu', padding='same', kernel_initializer='he_normal')(pool4)
+    conv5 = Conv2D(1024, 3, activation='relu', padding='same', kernel_initializer='he_normal')(
+        encoders_output[-1][1])
     conv5 = Conv2D(1024, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv5)
     drop5 = Dropout(0.5)(conv5)
 
-    # for classification
-    dense5 = Dense(64, activation='sigmoid', kernel_initializer='he_uniform')(Flatten()(drop5))
-
     # DECODER NETWORK PART
+    decoders_output = None
+    for i in range(len(filters)):
+        if i == 0:
+            decoders_output = decoding_layer(conv5,
+                                             encoders_output[len(filters) - (i + 1)].conv,
+                                             filters[len(filters) - (i + 1)]['filter_size'],
+                                             num_filters=kernel,
+                                             dropout=filters[len(filters) - (i+1)]['dropout'],
+                                             variant=variant)
+        else:
+            decoders_output = decoding_layer(decoders_output,
+                                             encoders_output[len(filters) - (i + 1)].conv,
+                                             filters[len(filters) - (i + 1)]['filter_size'],
+                                             num_filters=kernel,
+                                             dropout=filters[len(filters) - (i+1)]['dropout'],
+                                             variant=variant)
 
-    # level 4
-    up6 = Conv2D(512, 2, activation='relu', padding='same', kernel_initializer='he_normal')(
-        UpSampling2D(size=(2, 2))(drop5))
-    merge6 = concatenate([drop4, up6], axis=3)
-    conv6 = Conv2D(512, 3, activation='relu', padding='same', kernel_initializer='he_normal')(merge6)
-    conv6 = Conv2D(512, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv6)
+    if decoders_output is None:
+        print('Please insert filters')
+        return
 
-    # level 3
-    up7 = Conv2D(256, 2, activation='relu', padding='same', kernel_initializer='he_normal')(
-        UpSampling2D(size=(2, 2))(conv6))
-    merge7 = concatenate([conv3, up7], axis=3)
-    conv7 = Conv2D(256, 3, activation='relu', padding='same', kernel_initializer='he_normal')(merge7)
-    conv7 = Conv2D(256, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv7)
+    # SEGMENTATION OUTPUT
+    conv10 = Conv2D(1, 1, activation='sigmoid', name="segmentation")(decoders_output)
 
-    # level 2
-    up8 = Conv2D(128, 2, activation='relu', padding='same', kernel_initializer='he_normal')(
-        UpSampling2D(size=(2, 2))(conv7))
-    merge8 = concatenate([conv2, up8], axis=3)
-    conv8 = Conv2D(128, 3, activation='relu', padding='same', kernel_initializer='he_normal')(merge8)
-    conv8 = Conv2D(128, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv8)
-
-    # level 1
-    up9 = Conv2D(64, 2, activation='relu', padding='same', kernel_initializer='he_normal')(
-        UpSampling2D(size=(2, 2))(conv8))
-    merge9 = concatenate([conv1, up9], axis=3)
-    conv9 = Conv2D(64, 3, activation='relu', padding='same', kernel_initializer='he_normal')(merge9)
-    conv9 = Conv2D(64, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv9)
-    conv9 = Conv2D(2, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv9)
-    conv10 = Conv2D(1, 1, activation='sigmoid', name="segmentation")(conv9)
-
-    # for classification
+    # SEGMENTATION OUTPUT FEATURE VECTOR
     pool10 = MaxPooling2D(pool_size=(2, 2))(conv10)
-    dense10 = Dense(64, activation='sigmoid', kernel_initializer='he_uniform')(Flatten()(pool10))
-    dense11 = Dense(64, activation='sigmoid', kernel_initializer='he_uniform')(dense10)
+    dense10 = Dense(64, activation='sigmoid')(Flatten()(pool10))
+    dense11 = Dense(8, activation='sigmoid')(dense10)
 
-    merge10 = concatenate([dense5, dense11], axis=-1)
-    dense12 = Dense(num_attributes, activation='relu', kernel_initializer='he_uniform',
-                    name="multi_classification")(merge10)
+    # ENCODER OUTPUT FEATURE VECTOR
+    dense5 = Dense(8, activation='sigmoid')(Flatten()(drop5))
+
+    # MULTI-REGRESSION (fusion inspiration https://www.cs.unc.edu/~eunbyung/papers/wacv2016_combining.pdf)
+    merge10 = Multiply()([dense5, dense11])
+    dense12 = Dense(num_attributes, activation='sigmoid', name="multi_classification")(merge10)
 
     model = Model(inputs=[inputs], outputs=[conv10, dense12])
 

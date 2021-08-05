@@ -1,4 +1,5 @@
-import tensorflow as tf
+import shutil
+
 import numpy as np
 import os
 import cv2
@@ -24,7 +25,6 @@ defaultParameters = {
 }
 
 np.random.seed(42)
-tf.random.set_seed(42)
 session = requests.session()
 
 
@@ -115,3 +115,34 @@ def fetch_dicom_images_by_series(series_id, path):
                                     path,
                                     dicom[SOP_INSTANCE_UID] + '.dcm'),
                                 parameters)
+
+
+# TODO: write argument support
+if __name__ == '__main__':
+
+    # 1. Fetch Patients
+    patients = fetch_patients(10)
+
+    # 2. Fetch Studies
+    studies = {}
+    for patient in patients:
+        studies[patient[PATIENT_ID]] = fetch_patient_study(patient[PATIENT_ID])
+
+    # 3. Fetch Studies Series
+    study_series = dict()
+    for key in studies:
+        for study in studies[key]:
+            study_series[study[STUDY_INSTANCE_UID]] = fetch_study_series(study[PATIENT_ID], study[STUDY_INSTANCE_UID])
+
+    # 4. Fetch Studies
+    scans_folder = './data/scans'
+    shutil.rmtree(scans_folder, ignore_errors=True)
+    for key in study_series:
+        for series in study_series[key]:
+            fetch_dicom_images_by_series(
+                series[SERIES_INSTANCE_UID],
+                os.path.join(
+                    scans_folder,
+                    series[PATIENT_ID],
+                    series[STUDY_INSTANCE_UID],
+                    series[SERIES_INSTANCE_UID]))

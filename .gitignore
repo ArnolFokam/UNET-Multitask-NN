@@ -1,5 +1,6 @@
 # Created by .ignore support plugin (hsz.mobi)
-data/processed/clean/*
+data/processed/clean/image/*
+data/processed/clean/mask/*
 data/processed/image/*
 data/processed/mask/*
 data/processed/meta/*
