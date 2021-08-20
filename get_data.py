@@ -121,7 +121,7 @@ def fetch_dicom_images_by_series(series_id, path):
 if __name__ == '__main__':
 
     # 1. Fetch Patients
-    patients = fetch_patients(10)
+    patients = fetch_patients(500)
 
     # 2. Fetch Studies
     studies = {}

@@ -13,23 +13,28 @@ from pylidc.utils import consensus
 from preprocessing.utils import segment_lung
 
 
-def hu_normalize(im, slope, intercept):
-    """normalize the image to Houndsfield Unit
-    """
-    im = im * slope + intercept
-    im[im > 400] = 400
-    im[im < -1000] = -1000
-
-    im = (255 - 0) / (400 - (-1000)) * (im - 400) + 255
-
-    return im.astype(np.uint8)
-
-
 def get_any_file(path):
     files = glob.glob(path + "/*.dcm")
     if len(files) < 1:
         return None
     return pydicom.read_file(files[0])
+
+
+def calculate_malignancy(nodule):
+    # Calculate the malignancy of a nodule with the annotations made by 4 doctors. Return median high of the
+    # annotated cancer, True or False label for cancer if median high is above 3, we return a label True for
+    # cancer if it is below 3, we return a label False for non-cancer if it is 3, we return ambiguous
+    list_of_malignancy = []
+    for annotation in nodule:
+        list_of_malignancy.append(annotation.malignancy)
+
+    malignancy = median_high(list_of_malignancy)
+    if malignancy > 3:
+        return malignancy, True
+    elif malignancy < 3:
+        return malignancy, False
+    else:
+        return malignancy, 'Ambiguous'
 
 
 class DatasetPreprocessor:
@@ -62,22 +67,6 @@ class DatasetPreprocessor:
                                      'malignancy',
                                      'is_cancer',
                                      'is_clean'])
-
-    def calculate_malignancy(self, nodule):
-        # Calculate the malignancy of a nodule with the annotations made by 4 doctors. Return median high of the
-        # annotated cancer, True or False label for cancer if median high is above 3, we return a label True for
-        # cancer if it is below 3, we return a label False for non-cancer if it is 3, we return ambiguous
-        list_of_malignancy = []
-        for annotation in nodule:
-            list_of_malignancy.append(annotation.malignancy)
-
-        malignancy = median_high(list_of_malignancy)
-        if malignancy > 3:
-            return malignancy, True
-        elif malignancy < 3:
-            return malignancy, False
-        else:
-            return malignancy, 'Ambiguous'
 
     def save_meta(self, meta_list):
         """Saves the information of nodule to csv file"""
@@ -125,28 +114,25 @@ class DatasetPreprocessor:
         for patient in tqdm(self.IDRI_list):
             pid = patient  # LIDC-IDRI-0001~
             scan = pl.query(pl.Scan).filter(pl.Scan.patient_id == pid).first()
-            """dcm = get_any_file(scan.get_path_to_dicom_files())
-            intercept = dcm.RescaleIntercept
-            slope = dcm.RescaleSlope"""
             nodules_annotation = scan.cluster_annotations()
             vol = scan.to_volume()
             print("Patient ID: {} Dicom Shape: {} Number of Annotated Nodules: {}".format(pid, vol.shape,
                                                                                           len(nodules_annotation)))
 
-            patient_image_dir = IMAGE_DIR / pid
-            patient_mask_dir = MASK_DIR / pid
-            Path(patient_image_dir).mkdir(parents=True, exist_ok=True)
-            Path(patient_mask_dir).mkdir(parents=True, exist_ok=True)
-
             if len(nodules_annotation) > 0:
                 # Patients with nodules
+                patient_image_dir = IMAGE_DIR / pid
+                patient_mask_dir = MASK_DIR / pid
+                Path(patient_image_dir).mkdir(parents=True, exist_ok=True)
+                Path(patient_mask_dir).mkdir(parents=True, exist_ok=True)
+
                 for nodule_idx, nodule in enumerate(nodules_annotation):
                     # Call nodule images. Each Patient will have at maximum 4 annotations as there are only 4 doctors
                     # This current for loop iterates over total number of nodules in a single patient
                     mask, cbbox, masks = consensus(nodule, self.c_level, self.padding)
                     lung_np_array = vol[cbbox]
                     # We calculate the malignancy information
-                    malignancy, cancer_label = self.calculate_malignancy(nodule)
+                    malignancy, cancer_label = calculate_malignancy(nodule)
 
                     # compute the average value for each attributes annotation
                     # from the different radiologists
@@ -166,9 +152,8 @@ class DatasetPreprocessor:
                             continue
 
                         # Segment Lung part only
+                        # get set the padding so that if makes on 64x64 image
                         lung_segmented_np_array = segment_lung(lung_np_array[:, :, nodule_slice])
-                        # I am not sure why but some values are stored as -0. <- this may result in datatype error in
-                        # pytorch training # Not sure
                         lung_segmented_np_array[lung_segmented_np_array == -0] = 0
                         # This iterates through the slices of a single nodule
                         # Naming of each file: NI= Nodule Image, MA= Mask Original
@@ -193,8 +178,8 @@ class DatasetPreprocessor:
                             False]
 
                         self.save_meta(meta_list)
-                        # np.save(patient_image_dir / nodule_name, lung_segmented_np_array)
-                        # np.save(patient_mask_dir / mask_name, mask[:, :, nodule_slice])
+                        np.save(patient_image_dir / nodule_name, lung_segmented_np_array)
+                        np.save(patient_mask_dir / mask_name, mask[:, :, nodule_slice])
             else:
                 print("Clean Dataset", pid)
                 patient_clean_dir_image = CLEAN_DIR_IMAGE / pid
@@ -203,19 +188,19 @@ class DatasetPreprocessor:
                 Path(patient_clean_dir_mask).mkdir(parents=True, exist_ok=True)
                 # There are patients that don't have nodule at all. Meaning, its a clean dataset. We need to use this
                 # for validation
-                for slice in range(vol.shape[2]):
-                    if slice > 50:
+                for _slice in range(vol.shape[2]):
+                    if _slice > 50:
                         break
-                    lung_segmented_np_array = segment_lung(vol[:, :, slice])
+                    lung_segmented_np_array = segment_lung(vol[:, :, _slice])
                     lung_segmented_np_array[lung_segmented_np_array == -0] = 0
                     lung_mask = np.zeros_like(lung_segmented_np_array)
 
                     # CN= CleanNodule, CM = CleanMask
-                    nodule_name = "{}_CN001_slice{}".format(pid[-4:], prefix[slice])
-                    mask_name = "{}_CM001_slice{}".format(pid[-4:], prefix[slice])
+                    nodule_name = "{}_CN001_slice{}".format(pid[-4:], prefix[_slice])
+                    mask_name = "{}_CM001_slice{}".format(pid[-4:], prefix[_slice])
                     meta_list = [pid[-4:],
-                                 slice,
-                                 prefix[slice],
+                                 _slice,
+                                 prefix[_slice],
                                  nodule_name,
                                  mask_name,
                                  'N/A',
@@ -230,8 +215,8 @@ class DatasetPreprocessor:
                                  False,
                                  True]
                     self.save_meta(meta_list)
-                    # np.save(patient_clean_dir_image / nodule_name, lung_segmented_np_array)
-                    # np.save(patient_clean_dir_mask / mask_name, lung_mask)
+                    np.save(patient_clean_dir_image / nodule_name, lung_segmented_np_array)
+                    np.save(patient_clean_dir_mask / mask_name, lung_mask)
 
         print("Saved Meta data")
         self.meta.to_csv(self.meta_path + 'meta_info.csv', index=False)

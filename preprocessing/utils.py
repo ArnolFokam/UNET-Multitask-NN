@@ -24,13 +24,13 @@ def segment_lung(img):
     img = img - mean
     img = img / std
 
-    middle = img[100:400, 100:400]
+    middle = img[150:450, 150:450]
     mean = np.mean(middle)
-    max = np.max(img)
-    min = np.min(img)
+    _max = np.max(img)
+    _min = np.min(img)
     # remove the underflow bins
-    img[img == max] = mean
-    img[img == min] = mean
+    img[img == _max] = mean
+    img[img == _min] = mean
 
     # apply median filter
     img = median_filter(img, size=3)
@@ -56,7 +56,7 @@ def segment_lung(img):
     #
     #  The mask here is the mask for the lungs--not the nodes
     #  After just the lungs are left, we do another large dilation
-    #  in order to fill in and out the lung mask 
+    #  in order to fill in and out the lung mask
     #
     for N in good_labels:
         mask = mask + np.where(labels == N, 1, 0)
