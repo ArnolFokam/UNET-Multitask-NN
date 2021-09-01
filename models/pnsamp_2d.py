@@ -9,19 +9,23 @@ EncoderOutput = namedtuple('EncoderOutput', 'conv pool')
 
 filters = [
     {
+        'filter_size': 2,
+        'dropout': None
+    },
+    {
+        'filter_size': 4,
+        'dropout': None
+    },
+    {
         'filter_size': 8,
         'dropout': None
     },
     {
         'filter_size': 16,
-        'dropout': None
-    },
-    {
-        'filter_size': 32,
         'dropout': 0.3
     },
     {
-        'filter_size': 64,
+        'filter_size': 1024,
         'dropout': None
     }]
 kernel = 3
@@ -56,10 +60,10 @@ def PNSAMP_2D(
             )
 
     # BETWEEN ENCODER AND DECODER
-    conv5 = Conv2D(1024, 3, activation='relu', padding='same', kernel_initializer='he_normal')(
+    conv5 = Conv2D(128, 3, activation='relu', padding='same')(
         encoders_output[-1][1])
-    conv5 = Conv2D(1024, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv5)
     drop5 = Dropout(0.5)(conv5)
+    dense5 = Dense(64, activation='sigmoid')(Flatten()(drop5))
 
     # DECODER NETWORK PART
     decoders_output = None
@@ -89,16 +93,16 @@ def PNSAMP_2D(
     # SEGMENTATION OUTPUT FEATURE VECTOR
     pool10 = MaxPooling2D(pool_size=(2, 2))(conv10)
     dense10 = Dense(64, activation='sigmoid')(Flatten()(pool10))
-    dense11 = Dense(8, activation='sigmoid')(dense10)
-
-    # ENCODER OUTPUT FEATURE VECTOR
-    dense5 = Dense(8, activation='sigmoid')(Flatten()(drop5))
 
     # MULTI-REGRESSION (fusion inspiration https://www.cs.unc.edu/~eunbyung/papers/wacv2016_combining.pdf)
-    merge10 = Multiply()([dense5, dense11])
-    dense12 = Dense(num_attributes, activation='sigmoid', name="multi_classification")(merge10)
+    # merge10 = Multiply()([dense5, dense10])
+    dense12 = Dense(num_attributes, activation='sigmoid', name="multi_regression")(dense10)
 
-    model = Model(inputs=[inputs], outputs=[conv10, dense12])
+    # classification
+    dense5 = Dense(64, activation='sigmoid')(Flatten()(conv5))
+    dense14 = Dense(5, activation='softmax', name="classification")(dense5)
+
+    model = Model(inputs=inputs, outputs=[conv10, dense12, dense14])
 
     if pretrained_weights:
         model.load_weights(pretrained_weights)

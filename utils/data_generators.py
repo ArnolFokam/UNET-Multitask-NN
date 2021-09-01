@@ -1,7 +1,14 @@
 from abc import ABC
 import numpy as np
-import cv2
 import tensorflow as tf
+
+
+def progressBar(current, total, barLength = 20):
+    percent = float(current) * 100 / total
+    arrow = '=' * int(percent/100 * barLength - 1) + '>'
+    spaces = ' ' * (barLength - len(arrow))
+
+    print('Progress: [%s%s] %d %%' % (arrow, spaces, percent), end='\r')
 
 
 class DicomDataGenerator(tf.keras.utils.Sequence, ABC):
@@ -20,6 +27,7 @@ class DicomDataGenerator(tf.keras.utils.Sequence, ABC):
         self.img_path_col_name = img_path_col_name
         self.mask_path_col_name = mask_path_col_name
         self.shuffle = shuffle
+        self.i = 0
         self.n = len(self.df)
 
     def on_epoch_end(self):
@@ -28,8 +36,7 @@ class DicomDataGenerator(tf.keras.utils.Sequence, ABC):
 
     def __getitem__(self, index):
         batches = self.df[index * self.batch_size:(index + 1) * self.batch_size]
-        X, y = self.__get_data(batches)
-        return X, y
+        return self.__get_data(batches)
 
     def __len__(self):
         return self.n // self.batch_size
@@ -37,22 +44,26 @@ class DicomDataGenerator(tf.keras.utils.Sequence, ABC):
     def __get_dicom_scan(self, path):
         # the scan are saved as numpy files
         image_arr = np.load(path).astype(np.float32)
-        image_arr = cv2.resize(image_arr, (self.target_size[0], self.target_size[1]), interpolation=cv2.INTER_AREA)
-        image_arr / np.amax(image_arr)
+        image_arr = tf.expand_dims(image_arr, axis=-1)
 
-        return tf.expand_dims(image_arr, axis=-1)
+        img = tf.image.resize(image_arr, (self.target_size[0], self.target_size[1]), method='bicubic')
+
+        # progress bar in dicom loading
+        self.i += 1
+        progressBar(self.i / 2, self.n, 100)
+        return img
 
     def __get_data(self, batches):
         # get path of image data (change this function)
         img_path_batch = batches[self.img_path_col_name].values
-        # mask_path_batch = batches[self.mask_path_col_name].values
+        mask_path_batch = batches[self.mask_path_col_name].values
+        # features = batches[self.features_cols].values
 
-        X_batch = np.asarray([self.__get_dicom_scan(p) for p in img_path_batch])
-        y_batch = tuple([[self.__get_dicom_scan(p) for p in batches[self.mask_path_col_name].values],
-                         batches[self.features_cols].values])
+        X_batch = tf.convert_to_tensor([self.__get_dicom_scan(p) for p in img_path_batch])
+        Y_mask_batch = tf.convert_to_tensor([self.__get_dicom_scan(p) for p in mask_path_batch])
 
-        """y_batch = [
-            [self.__get_dicom_scan(p), features] for p, *features in
-            batches[[self.mask_path_col_name] + self.features_cols].values]"""
+        # normalize so it starts at 0
+        Y_features_batch = tf.convert_to_tensor(batches[self.features_cols].values - 1)
+        Y_malignancy_batch = tf.convert_to_tensor(batches['malignancy'].values - 1)
 
-        return X_batch, y_batch
+        return X_batch, Y_mask_batch, Y_features_batch, Y_malignancy_batch

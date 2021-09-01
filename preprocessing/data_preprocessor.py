@@ -7,16 +7,15 @@ import pydicom
 import pylidc as pl
 from tqdm import tqdm
 from statistics import median_high
-
+from sklearn.model_selection import train_test_split
 from pylidc.utils import consensus
+from preprocessing.utils import segment_lung, get_pixels_hu
 
-from preprocessing.utils import segment_lung
 
-
-def get_any_file(path):
-    files = glob.glob(path + "/*.dcm")
+def get_any_dicom(path):
+    files = glob.glob(str(path) + "/**/*.dcm", recursive=True)
     if len(files) < 1:
-        return None
+        raise Exception('no dicom file found')
     return pydicom.read_file(files[0])
 
 
@@ -38,10 +37,12 @@ def calculate_malignancy(nodule):
 
 
 class DatasetPreprocessor:
-    def __init__(self, LIDC_Patients_list, IMAGE_DIR, MASK_DIR, CLEAN_DIR_IMAGE, CLEAN_DIR_MASK, META_DIR,
-                 mask_threshold, padding, confidence_level=0.5):
+    def __init__(self, LIDC_Patients_list, SCAN_DIR, IMAGE_DIR, MASK_DIR, CLEAN_DIR_IMAGE, CLEAN_DIR_MASK, META_DIR,
+                 mask_threshold, padding, confidence_level=0.5, test_size=0.3):
+        self.test_size = test_size
         self.IDRI_list = LIDC_Patients_list
         self.img_path = IMAGE_DIR
+        self.scan_path = SCAN_DIR
         self.mask_path = MASK_DIR
         self.clean_path_img = CLEAN_DIR_IMAGE
         self.clean_path_mask = CLEAN_DIR_MASK
@@ -110,6 +111,7 @@ class DatasetPreprocessor:
         MASK_DIR = Path(self.mask_path)
         CLEAN_DIR_IMAGE = Path(self.clean_path_img)
         CLEAN_DIR_MASK = Path(self.clean_path_mask)
+        SCAN_DIR = Path(self.scan_path)
 
         for patient in tqdm(self.IDRI_list):
             pid = patient  # LIDC-IDRI-0001~
@@ -131,6 +133,14 @@ class DatasetPreprocessor:
                     # This current for loop iterates over total number of nodules in a single patient
                     mask, cbbox, masks = consensus(nodule, self.c_level, self.padding)
                     lung_np_array = vol[cbbox]
+
+                    # normalize lung
+                    # TODO: check this code
+                    dicom = get_any_dicom(SCAN_DIR.joinpath(patient))
+                    intercept = dicom.RescaleIntercept
+                    slope = dicom.RescaleSlope
+                    lung_np_array = get_pixels_hu(lung_np_array, slope, intercept)
+
                     # We calculate the malignancy information
                     malignancy, cancer_label = calculate_malignancy(nodule)
 
@@ -155,6 +165,7 @@ class DatasetPreprocessor:
                         # get set the padding so that if makes on 64x64 image
                         lung_segmented_np_array = segment_lung(lung_np_array[:, :, nodule_slice])
                         lung_segmented_np_array[lung_segmented_np_array == -0] = 0
+
                         # This iterates through the slices of a single nodule
                         # Naming of each file: NI= Nodule Image, MA= Mask Original
                         nodule_name = "{}_NI{}_slice{}".format(pid[-4:], prefix[nodule_idx], prefix[nodule_slice])
@@ -219,4 +230,6 @@ class DatasetPreprocessor:
                     np.save(patient_clean_dir_mask / mask_name, lung_mask)
 
         print("Saved Meta data")
-        self.meta.to_csv(self.meta_path + 'meta_info.csv', index=False)
+        train, test = train_test_split(self.meta, test_size=self.test_size)
+        train.to_csv(self.meta_path + 'meta_train_info.csv', index=False)
+        test.to_csv(self.meta_path + 'meta_test_info.csv', index=False)
