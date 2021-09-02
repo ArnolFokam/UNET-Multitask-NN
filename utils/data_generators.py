@@ -63,7 +63,7 @@ class DicomDataGenerator(tf.keras.utils.Sequence, ABC):
         Y_mask_batch = tf.convert_to_tensor([self.__get_dicom_scan(p) for p in mask_path_batch])
 
         # normalize so it starts at 0
-        Y_features_batch = tf.convert_to_tensor(batches[self.features_cols].values - 1)
+        Y_features_batch = tf.convert_to_tensor(batches[self.features_cols].values)
         Y_malignancy_batch = tf.convert_to_tensor(batches['malignancy'].values - 1)
 
         return X_batch, Y_mask_batch, Y_features_batch, Y_malignancy_batch
