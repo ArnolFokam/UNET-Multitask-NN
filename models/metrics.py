@@ -1,5 +1,5 @@
 # https://github.com/yashkhasgiwala/Semantic-segmentation-of-tumor-using-brain-MRI-scans
-import keras.backend as K
+import tensorflow.keras.backend as K
 import tensorflow as tf
 
 
