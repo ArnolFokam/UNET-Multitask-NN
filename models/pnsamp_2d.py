@@ -1,5 +1,5 @@
 from collections import namedtuple
-
+import tensorflow as tf
 from tensorflow.keras.models import *
 from tensorflow.keras.layers import *
 
@@ -94,15 +94,20 @@ def PNSAMP_2D(
     pool10 = MaxPooling2D(pool_size=(2, 2))(conv10)
     dense10 = Dense(64, activation='sigmoid')(Flatten()(pool10))
 
-    # MULTI-REGRESSION (fusion inspiration https://www.cs.unc.edu/~eunbyung/papers/wacv2016_combining.pdf)
-    # merge10 = Multiply()([dense5, dense10])
-    dense12 = Dense(num_attributes, activation='sigmoid', name="multi_regression")(dense10)
+    # MULTI-LABEL SOFTMAX CLASSIFICATION (fusion inspiration
+    # https://www.cs.unc.edu/~eunbyung/papers/wacv2016_combining.pdf)
+    merge10 = Multiply()([dense5, dense10])
+
+    feature_preds = [Dense(5, activation='softmax')(merge10)]
+    for i in range(num_attributes - 1):
+        feature_preds = tf.concat([feature_preds, [Dense(5, activation='softmax')(merge10)]], 0)
+    feature_preds = tf.transpose(feature_preds, perm=[1, 0, 2])
 
     # classification
     dense5 = Dense(64, activation='sigmoid')(Flatten()(conv5))
     dense14 = Dense(5, activation='softmax', name="classification")(dense5)
 
-    model = Model(inputs=inputs, outputs=[conv10, dense12, dense14])
+    model = Model(inputs=inputs, outputs=[conv10, feature_preds, dense14])
 
     if pretrained_weights:
         model.load_weights(pretrained_weights)

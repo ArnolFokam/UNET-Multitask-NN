@@ -1,13 +1,15 @@
 import os
 import numpy as np
-import pydicom
 import scipy
-import matplotlib.pyplot as plt
-from medpy.filter.smoothing import anisotropic_diffusion
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from scipy.ndimage import median_filter
 from skimage import measure, morphology
 from sklearn.cluster import KMeans
+
+# TODO: ideas
+# https://www.kaggle.com/arnavkj95/candidate-generation-and-luna16-preprocessing
+# mean over batch size
+# multi-dim softmax
+# https://stackoverflow.com/questions/53440551/producing-a-softmax-on-two-channels-in-tensorflow-and-keras
 
 
 def is_dir_path(string):
@@ -30,7 +32,7 @@ def segment_lung(img):
     img = img / std
     # Find the average pixel value near the lungs
     # to renormalize washed out images
-    middle = img[int(col_size / 5):int(col_size / 5 * 4), int(row_size / 5):int(row_size / 5 * 4)]
+    middle = img[int(col_size / 5):int((col_size / 5) * 4), int(row_size / 5):int((row_size / 5) * 4)]
     mean = np.mean(middle)
     max = np.max(img)
     min = np.min(img)
@@ -58,8 +60,8 @@ def segment_lung(img):
     good_labels = []
     for prop in regions:
         B = prop.bbox
-        if B[2] - B[0] < row_size / 10 * 9 and B[3] - B[1] < col_size / 10 * 9 and B[0] > row_size / 5 and B[
-            2] < col_size / 5 * 4:
+        if B[2] - B[0] < row_size / 10 * 9 and B[3] - B[1] < col_size / 10 * 9 and B[0] > row_size / 5 and B[2] < \
+                col_size / 5 * 4:
             good_labels.append(prop.label)
     mask = np.ndarray([row_size, col_size], dtype=np.int8)
     mask[:] = 0

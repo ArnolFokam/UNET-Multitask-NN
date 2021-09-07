@@ -1,6 +1,7 @@
 # https://github.com/yashkhasgiwala/Semantic-segmentation-of-tumor-using-brain-MRI-scans
 import tensorflow.keras.backend as K
 import tensorflow as tf
+import numpy as np
 
 
 def tversky(y_true, y_pred):
@@ -41,9 +42,16 @@ def dsc(y_true, y_pred):
     y_pred_f = K.flatten(y_pred)
     intersection = K.sum(y_true_f * y_pred_f)
     score = (2. * intersection + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth)
-    return score
+    return K.mean(score)
 
 
 def dice_loss(y_true, y_pred):
     loss = 1 - dsc(y_true, y_pred)
     return loss
+
+
+def hamming_score(y_true, y_pred):
+    return (
+        (y_true & y_pred).sum(axis=1) / ((y_true | y_pred).sum(axis=1) + 1e-12)
+        # constant factor to prevent problems with division
+    ).mean()
